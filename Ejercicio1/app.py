@@ -20,16 +20,33 @@ def close_db(exception):
         db.close()
 
 
+# MITIGACIÓN (CWE-89 - SQL Injection):
+#    El valor de búsqueda ya no se concatena en el SQL: se pasa como parámetro
+#    enlazado ('?') y SQLite se encarga del escapado/tipado.
+COLUMNAS_ORDEN = {
+    'nombre': 'peliculas.nombre',
+    'fecha': 'funciones.fecha_hora',
+}
+DIRECCIONES_ORDEN = {'ASC', 'DESC'}
+
+
 def buscar_funciones(query, sort_by='nombre', sort_dir='ASC'):
     db = get_db()
-    sql = f"SELECT peliculas.nombre as pelicula, funciones.fecha_hora, " \
-          f"(funciones.asientos_totales - funciones.asientos_ocupados) as disponibles " \
-          f"FROM funciones " \
-          f"JOIN peliculas ON funciones.pelicula_id = peliculas.id " \
-          f"WHERE peliculas.nombre LIKE '%{query}%' " \
-          f"ORDER BY {'peliculas.nombre' if sort_by == 'nombre' else 'funciones.fecha_hora'} " \
-          f"{sort_dir}"
-    return db.execute(sql).fetchall()
+
+    columna_orden = COLUMNAS_ORDEN.get(sort_by, COLUMNAS_ORDEN['nombre'])
+    direccion_orden = sort_dir if sort_dir in DIRECCIONES_ORDEN else 'ASC'
+
+    sql = (
+        "SELECT peliculas.nombre as pelicula, funciones.fecha_hora, "
+        "(funciones.asientos_totales - funciones.asientos_ocupados) as disponibles "
+        "FROM funciones "
+        "JOIN peliculas ON funciones.pelicula_id = peliculas.id "
+        "WHERE peliculas.nombre LIKE ? "
+        f"ORDER BY {columna_orden} {direccion_orden}"
+    )
+
+    patron_busqueda = f"%{query}%"
+    return db.execute(sql, (patron_busqueda,)).fetchall()
 
 
 @app.route('/')

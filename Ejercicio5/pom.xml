@@ -39,6 +39,17 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
         </dependency>
+        <!-- MITIGACIÓN (CWE-312 / CWE-916 - Almacenamiento inseguro de contraseñas):
+             Se agrega spring-security-crypto exclusivamente para usar
+             BCryptPasswordEncoder, un algoritmo de hash de una sola vía,
+             lento y con sal aleatoria por contraseña, adecuado para
+             almacenar credenciales (a diferencia de un cifrado reversible
+             como AES). No se agrega spring-boot-starter-security completo
+             porque este ejercicio no requiere su capa de autenticación/MVC. -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
+        </dependency>
     </dependencies>
 
     <build>

@@ -20,19 +20,30 @@ def close_db(exception):
         db.close()
 
 
+COLUMNAS_ORDEN = {
+    'nombre': 'peliculas.nombre',
+    'fecha': 'funciones.fecha_hora',
+}
+DIRECCIONES_ORDEN = {'ASC', 'DESC'}
+
+
 def buscar_funciones(query, sort_by='nombre', sort_dir='ASC'):
     db = get_db()
+
+    columna_orden = COLUMNAS_ORDEN.get(sort_by, COLUMNAS_ORDEN['nombre'])
+    direccion_orden = sort_dir if sort_dir in DIRECCIONES_ORDEN else 'ASC'
+
     sql = (
-        f"SELECT peliculas.nombre as pelicula, funciones.fecha_hora, "
-        f"(funciones.asientos_totales - funciones.asientos_ocupados) as disponibles, "
-        f"peliculas.descripcion as descripcion, peliculas.id as id "
-        f"FROM funciones "
-        f"JOIN peliculas ON funciones.pelicula_id = peliculas.id "
-        f"WHERE peliculas.nombre LIKE '%{query}%' "
-        f"ORDER BY {'peliculas.nombre' if sort_by == 'nombre' else 'funciones.fecha_hora'} "
-        f"{sort_dir}"
+        "SELECT peliculas.nombre as pelicula, funciones.fecha_hora, "
+        "(funciones.asientos_totales - funciones.asientos_ocupados) as disponibles, "
+        "peliculas.descripcion as descripcion, peliculas.id as id "
+        "FROM funciones "
+        "JOIN peliculas ON funciones.pelicula_id = peliculas.id "
+        "WHERE peliculas.nombre LIKE ? "
+        f"ORDER BY {columna_orden} {direccion_orden}"
     )
-    return db.execute(sql).fetchall()
+    patron_busqueda = f"%{query}%"
+    return db.execute(sql, (patron_busqueda,)).fetchall()
 
 
 @app.route('/')

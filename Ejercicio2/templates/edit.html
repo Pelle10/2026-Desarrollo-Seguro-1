@@ -80,10 +80,12 @@
                 <input type="text" id="director" name="director" value="{{ pelicula['director'] }}" required>
 
                 <label for="descripcion">Descripción</label>
+                {# MITIGACIÓN (CWE-79 - Cross Site Scripting):
+                   Se elimina el filtro '| safe'. #}
                 {% if pelicula['descripcion'] %}
                     <div class="prev-descripcion">
                         <strong>Descripción actual:</strong><br>
-                        {{ pelicula['descripcion'] | safe }}
+                        {{ pelicula['descripcion'] }}
                     </div>
                 {% endif %}
                 <textarea id="descripcion" name="descripcion">{{ pelicula['descripcion'] }}</textarea>

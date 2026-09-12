@@ -70,16 +70,10 @@
     <div th:if="${registerSuccess}" class="msg success">&#10004; Usuario "<span th:text="${registeredUsername}"></span>" creado.</div>
     <div th:if="${registerError}" class="msg error" th:text="${registerError}"></div>
 
-    <!-- Post-login info -->
-    <div th:if="${loginSuccess}">
-        <div class="info-box">
-            <strong>&#128203; Datos de la cuenta (ejercicio):</strong>
-            <br><br>
-            &#9656; Password cifrada:
-            <div class="code" th:text="${encryptedPassword}"></div>
-            <br>
-        </div>
-    </div>
+    <!-- MITIGACIÓN: se elimina el bloque que mostraba el hash/valor cifrado
+         de la contraseña tras el login o registro. No hay ninguna razón
+         legítima para exponer ese dato en la interfaz, y hacerlo solo
+         entrega información innecesaria a un atacante. -->
 </div>
 
 <script>

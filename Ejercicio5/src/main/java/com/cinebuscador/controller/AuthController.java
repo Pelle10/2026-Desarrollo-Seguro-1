@@ -1,13 +1,14 @@
 package com.cinebuscador.controller;
 
-import com.cinebuscador.config.EncryptionService;
-import com.cinebuscador.repository.UserRepository;
-import com.cinebuscador.model.User;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+
+import com.cinebuscador.config.EncryptionService;
+import com.cinebuscador.model.User;
+import com.cinebuscador.repository.UserRepository;
 
 @Controller
 public class AuthController {
@@ -31,16 +32,21 @@ public class AuthController {
     public String login(@RequestParam String username, @RequestParam String password, Model model) {
         User user = userRepository.findByUsername(username).orElse(null);
 
-        if (user != null) {
-            // Descifrar la contraseña almacenada y comparar con la ingresada
-            String decryptedPassword = EncryptionService.decrypt(user.getPassword());
-            if (password.equals(decryptedPassword)) {
-                model.addAttribute("loginSuccess", true);
-                model.addAttribute("welcomeUser", username);
-                model.addAttribute("encryptedPassword", user.getPassword());
-                return "index";
-            }
+        // MITIGACIÓN: ya no se "descifra" la contraseña almacenada (antes con
+        // AES/ECB y una clave embebida). Ahora se verifica la contraseña
+        // ingresada contra el hash BCrypt guardado mediante
+        // EncryptionService.matches(...), que recalcula el hash con la sal
+        // incluida en el propio valor almacenado y compara de forma segura.
+        if (user != null && EncryptionService.matches(password, user.getPassword())) {
+            model.addAttribute("loginSuccess", true);
+            model.addAttribute("welcomeUser", username);
+            // MITIGACIÓN: ya no se expone la contraseña cifrada/hasheada en
+            // la respuesta HTML. Mostrar el hash (aunque no sea reversible)
+            // no aporta nada al usuario y solo da información innecesaria a
+            // un posible atacante que intercepte o inspeccione la página.
+            return "index";
         }
+
         model.addAttribute("loginError", "Usuario o contraseña incorrecta");
         addForms(model);
         return "index";
@@ -65,12 +71,14 @@ public class AuthController {
 
         com.cinebuscador.model.User nuevoUsuario = new com.cinebuscador.model.User();
         nuevoUsuario.setUsername(username);
-        nuevoUsuario.setPassword(EncryptionService.encrypt(password));
+        // MITIGACIÓN: se guarda un hash BCrypt (con sal aleatoria embebida en
+        // el propio hash) en vez de un valor cifrado y reversible.
+        nuevoUsuario.setPassword(EncryptionService.hashPassword(password));
         userRepository.save(nuevoUsuario);
 
         model.addAttribute("registerSuccess", true);
         model.addAttribute("registeredUsername", username);
-        model.addAttribute("encryptedPassword", EncryptionService.encrypt(password));
+        // MITIGACIÓN: no se devuelve el hash de la contraseña en la respuesta.
         addForms(model);
         return "index";
     }

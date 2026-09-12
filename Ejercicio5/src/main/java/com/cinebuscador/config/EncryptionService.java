@@ -1,100 +1,61 @@
 package com.cinebuscador.config;
 
-import javax.crypto.Cipher;
-import javax.crypto.spec.SecretKeySpec;
-import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
-import java.util.Base64;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 /**
- * Servicio de cifrado AES-256 para contraseñas.
+ * Servicio de manejo seguro de contraseñas.
  *
- * VULNERABILIDAD CRÍTICA: La clave de cifrado está embebida directamente en el código fuente.
- * Cualquier persona con acceso al código puede descifrar todas las contraseñas almacenadas.
+ * MITIGACIÓN (CWE-312 - Cleartext Storage / CWE-916 - Uso de un algoritmo de
+ * hash inadecuado para contraseñas / CWE-798 - Credenciales embebidas):
+ *
+ * La versión original de esta clase tenía tres problemas graves:
+ *
+ *   1) Usaba CIFRADO REVERSIBLE (AES) para "proteger" contraseñas. Las
+ *      contraseñas nunca deben poder recuperarse en texto claro: si la base
+ *      de datos o el código fuente se filtran, un cifrado reversible permite
+ *      recuperar TODAS las contraseñas de TODOS los usuarios. La solución
+ *      correcta es un HASH DE UNA SOLA VÍA (no reversible).
+ *   2) Usaba el modo AES/ECB, que es determinístico: la misma contraseña
+ *      siempre produce el mismo texto cifrado, lo que permite detectar
+ *      usuarios con contraseñas repetidas y facilita ataques de diccionario
+ *      precalculados (rainbow tables a nivel de bloque).
+ *   3) La clave de cifrado estaba embebida como constante en el código
+ *      fuente (CWE-798), visible para cualquiera con acceso al repositorio,
+ *      y además existían métodos que la exponían directamente
+ *      (getStaticKey/getKeyBytes/getKeyHex).
+ *
+ * La mitigación reemplaza el cifrado por BCrypt:
+ *   - Es un algoritmo de HASH de una sola vía: no existe forma de "decrypt".
+ *   - Genera una SAL ALEATORIA distinta por cada contraseña automáticamente
+ *     y la incluye en el propio hash de salida, por lo que dos usuarios con
+ *     la misma contraseña obtienen hashes distintos.
+ *   - Es deliberadamente lento (factor de costo configurable), lo que
+ *     dificulta ataques de fuerza bruta / diccionario a gran escala.
+ *   - No depende de ninguna clave secreta embebida en el código: no hay
+ *     nada equivalente a SECRET_KEY que proteger o que se pueda filtrar.
  */
 public class EncryptionService {
 
-    // ============================================================
-    // VULNERABILIDAD #1: Clave estática embebida en el código
-    // ============================================================
-    // La clave AES-256 debe ser de exactamente 32 bytes.
-    // Estática + en source code = cualquier atacante puede obtenerla.
-    private static final String SECRET_KEY = "MySup3rS3cr3tK3y!2024CineBuscadorAES";
+    private static final BCryptPasswordEncoder ENCODER = new BCryptPasswordEncoder();
 
-    private static final SecretKeySpec secretKey;
+    /**
+     * Genera el hash BCrypt (con sal aleatoria incluida) de una contraseña
+     * en texto plano. El resultado es lo único que se guarda en la base de
+     * datos.
+     */
+    public static String hashPassword(String plaintext) {
+        return ENCODER.encode(plaintext);
+    }
 
-    static {
-        byte[] keyBytes = SECRET_KEY.getBytes(StandardCharsets.UTF_8);
-        if (keyBytes.length < 32) {
-            // Pad con ceros si la clave es más corta
-            byte[] padded = new byte[32];
-            System.arraycopy(keyBytes, 0, padded, 0, keyBytes.length);
-            secretKey = new SecretKeySpec(padded, "AES");
-        } else {
-            secretKey = new SecretKeySpec(Arrays.copyOf(keyBytes, 32), "AES");
+    /**
+     * Verifica una contraseña en texto plano contra un hash BCrypt
+     * previamente almacenado. Nunca se "descifra" el hash: se recalcula y
+     * se compara de forma segura (constant-time) internamente por BCrypt.
+     */
+    public static boolean matches(String plaintextCandidato, String hashAlmacenado) {
+        if (plaintextCandidato == null || hashAlmacenado == null) {
+            return false;
         }
-    }
-
-    // ============================================================
-    // VULNERABILIDAD #2: ECB mode (determinístico)
-    // ============================================================
-    // ECB produce el mismo ciphertext para el mismo plaintext.
-    // Sin IV aleatorio, permite análisis de patrones entre usuarios.
-    private static final String CIPHER_ALGO = "AES/ECB/PKCS5Padding";
-
-    /**
-     * Cifra la contraseña con AES-256/ECB.
-     */
-    public static String encrypt(String plaintext) {
-        try {
-            Cipher cipher = Cipher.getInstance(CIPHER_ALGO);
-            cipher.init(Cipher.ENCRYPT_MODE, secretKey);
-            byte[] encrypted = cipher.doFinal(plaintext.getBytes(StandardCharsets.UTF_8));
-            return Base64.getEncoder().encodeToString(encrypted);
-        } catch (Exception e) {
-            throw new RuntimeException("Error al cifrar la contraseña", e);
-        }
-    }
-
-    /**
-     * Descifra una contraseña cifrada con AES-256/ECB.
-     */
-    public static String decrypt(String encryptedBase64) {
-        try {
-            Cipher cipher = Cipher.getInstance(CIPHER_ALGO);
-            cipher.init(Cipher.DECRYPT_MODE, secretKey);
-            byte[] decrypted = cipher.doFinal(Base64.getDecoder().decode(encryptedBase64));
-            return new String(decrypted, StandardCharsets.UTF_8);
-        } catch (Exception e) {
-            throw new RuntimeException("Error al descifrar la contraseña", e);
-        }
-    }
-
-    /**
-     * VULNERABILIDAD: Expone la clave de cifrado embebida.
-     * Esta función no debería existir en producción.
-     */
-    public static String getStaticKey() {
-        return SECRET_KEY;
-    }
-
-    /**
-     * VULNERABILIDAD: Expone los bytes crudos de la clave.
-     * Permite usar la clave con herramientas externas (openssl, etc.).
-     */
-    public static byte[] getKeyBytes() {
-        return secretKey.getEncoded();
-    }
-
-    /**
-     * Comando de ejemplo para descifrar con OpenSSL desde la terminal:
-     * echo "BASE64_STRING" | base64 -d | openssl enc -aes-256-ecb -nosalt -in /dev/stdin -out decrypted.txt -K KEY_HEX -nopad
-     */
-    public static String getKeyHex() {
-        StringBuilder sb = new StringBuilder();
-        for (byte b : secretKey.getEncoded()) {
-            sb.append(String.format("%02x", b));
-        }
-        return sb.toString().toUpperCase();
+        return ENCODER.matches(plaintextCandidato, hashAlmacenado);
     }
 }

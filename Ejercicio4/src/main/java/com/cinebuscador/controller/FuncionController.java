@@ -1,28 +1,32 @@
 package com.cinebuscador.controller;
 
-import com.cinebuscador.config.SpelEvaluator;
-import com.cinebuscador.model.Funcion;
-import com.cinebuscador.repository.FuncionRepository;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.stream.Collectors;
+import com.cinebuscador.model.Funcion;
+import com.cinebuscador.repository.FuncionRepository;
 
 @Controller
 public class FuncionController {
 
     private final FuncionRepository funcionRepo;
-    private final SpelEvaluator spelEval;
 
+    // MITIGACIÓN (CWE-1336 - SSTI / SpEL Injection):
+    // Ya no se inyecta ni se usa SpelEvaluator para procesar el texto de
+    // búsqueda. El parámetro "buscar" ahora se trata siempre como un simple
+    // String de datos, nunca como código/expresión a evaluar. Esto elimina la
+    // vulnerabilidad de raíz en vez de intentar "filtrar" caracteres
+    // peligrosos de la expresión SpEL.
     @Autowired
-    public FuncionController(FuncionRepository funcionRepo, SpelEvaluator spelEval) {
+    public FuncionController(FuncionRepository funcionRepo) {
         this.funcionRepo = funcionRepo;
-        this.spelEval = spelEval;
     }
 
     @GetMapping("/")
@@ -31,7 +35,6 @@ public class FuncionController {
         model.addAttribute("query", buscar != null ? buscar : "");
 
         if (buscar == null || buscar.isBlank()) {
-            System.out.println("buscar es: " + buscar);
             // Mostrar todas las funciones si no hay busqueda
             List<Funcion> todas = funcionRepo.findAll();
             model.addAttribute("resultados", todas);
@@ -39,17 +42,18 @@ public class FuncionController {
             return "index";
         }
 
-        String spelResultado = spelEval.evaluate(buscar);
+        // El texto ingresado por el usuario se usa tal cual, como dato de
+        // comparación de String, nunca como expresión a evaluar.
+        String textoBusqueda = buscar.trim();
 
-        model.addAttribute("spelOutput", spelResultado);
+        List<Funcion> resultados = funcionRepo.findAll().stream()
+            .filter(f -> f.getNombreFuncion() != null &&
+                         f.getNombreFuncion().toLowerCase().contains(textoBusqueda.toLowerCase()))
+            .collect(Collectors.toList());
 
-        if (!spelResultado.isBlank()) {
-            List<Funcion> resultados = funcionRepo.findAll().stream()
-                .filter(f -> f.getNombreFuncion() != null &&
-                             f.getNombreFuncion().toLowerCase().contains(spelResultado.toLowerCase()))
-                .collect(Collectors.toList());
+        if (!resultados.isEmpty()) {
             model.addAttribute("resultados", resultados);
-            model.addAttribute("mensaje", "Resultados buscando por: " + spelResultado);
+            model.addAttribute("mensaje", "Resultados buscando por: " + textoBusqueda);
         } else {
             model.addAttribute("resultados", new ArrayList<Funcion>());
             model.addAttribute("mensaje", "No se encontraron coincidencias.");
